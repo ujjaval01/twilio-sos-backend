@@ -1,41 +1,38 @@
-const express = require("express");
-const cors = require("cors");
-const dotenv = require("dotenv");
-const twilio = require("twilio");
-
-dotenv.config();
-
+require('dotenv').config();
+const express = require('express');
+const twilio = require('twilio');
 const app = express();
-app.use(cors());
-app.use(express.json());
+const bodyParser = require('body-parser');
+const port = process.env.PORT || 3000;
 
-const accountSid = process.env.TWILIO_SID;
-const authToken = process.env.TWILIO_AUTH_TOKEN;
-const fromNumber = process.env.TWILIO_PHONE;
+app.use(bodyParser.json());
 
-const client = twilio(accountSid, authToken);
+const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
-app.post("/send-sos", async (req, res) => {
-    const { to, message } = req.body;
-    const fromNumber = process.env.TWILIO_PHONE;
-  
-    if (!fromNumber) {
-      return res.status(500).json({ success: false, error: "Missing FROM number in server config" });
-    }
-  
-    try {
-      const result = await client.messages.create({
-        body: message,
-        from: fromNumber,
-        to
-      });
-  
-      res.status(200).json({ success: true, sid: result.sid });
-    } catch (err) {
-      console.error("Twilio error:", err.message);
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-  
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Endpoint to send SOS
+app.post('/send-sos', (req, res) => {
+    const { message, to, location } = req.body;
+
+    // Loop over all phone numbers and send SOS SMS
+    const promises = to.map((phoneNumber) => {
+        return client.messages.create({
+            body: message,
+            from: process.env.TWILIO_PHONE, // Twilio phone number
+            to: phoneNumber
+        });
+    });
+
+    // Wait for all promises to resolve
+    Promise.all(promises)
+        .then((messages) => {
+            res.json({ success: true, message: 'SOS sent to all contacts' });
+        })
+        .catch((error) => {
+            console.error('Error sending SMS:', error);
+            res.status(500).json({ success: false, message: 'Failed to send SOS' });
+        });
+});
+
+app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+});
