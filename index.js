@@ -19,52 +19,43 @@ const client = twilio(
 );
 
 // SOS endpoint
-app.post('/send-sos', async (req, res) => {
-    const { message, to } = req.body;
+app.post('/send-sos', (req, res) => {
+    const { message, to, location } = req.body;
 
-    if (!message || !to || !Array.isArray(to) || to.length === 0) {
-        return res.status(400).json({ success: false, message: 'Invalid input: message or to[] is missing' });
-    }
+    console.log('Request received:', { message, to, location });
+    console.log('Using From number:', process.env.TWILIO_PHONE);
 
-    const results = await Promise.allSettled(to.map((number) => {
+    const promises = to.map((phoneNumber) => {
         return client.messages.create({
             body: message,
             from: process.env.TWILIO_PHONE,
-            to: number
-        });
-    }));
-
-    // Format success/failure response
-    const report = results.map((result, index) => {
-        if (result.status === 'fulfilled') {
-            return {
-                number: to[index],
-                status: 'success',
-                sid: result.value.sid,
-                error: null
-            };
-        } else {
-            return {
-                number: to[index],
-                status: 'rejected',
-                sid: null,
-                error: result.reason.message
-            };
-        }
+            to: phoneNumber
+        }).then(msg => ({
+            number: phoneNumber,
+            status: 'sent',
+            sid: msg.sid,
+            error: null
+        })).catch(err => ({
+            number: phoneNumber,
+            status: 'rejected',
+            sid: null,
+            error: err.message
+        }));
     });
 
-    const failed = report.filter(r => r.status === 'rejected');
-
-    if (failed.length === 0) {
+    Promise.all(promises).then(report => {
+        const hasFailure = report.some(r => r.status === 'rejected');
+        if (hasFailure) {
+            return res.status(500).json({
+                success: false,
+                message: 'SOS sent to some contacts, but failed for others',
+                report
+            });
+        }
         res.json({ success: true, message: 'SOS sent to all contacts', report });
-    } else {
-        res.status(500).json({
-            success: false,
-            message: 'SOS sent to some contacts, but failed for others',
-            report
-        });
-    }
+    });
 });
+
 
 // Start server
 app.listen(port, () => {
