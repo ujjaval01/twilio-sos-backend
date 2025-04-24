@@ -10,27 +10,50 @@ app.use(bodyParser.json());
 const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH_TOKEN);
 
 // Endpoint to send SOS
-app.post('/send-sos', (req, res) => {
+app.post('/send-sos', async (req, res) => {
     const { message, to, location } = req.body;
 
-    // Loop over all phone numbers and send SOS SMS
-    const promises = to.map((phoneNumber) => {
-        return client.messages.create({
-            body: message,
-            from: process.env.TWILIO_PHONE, // Twilio phone number
-            to: phoneNumber
-        });
-    });
+    if (!message || !to || !Array.isArray(to) || to.length === 0) {
+        return res.status(400).json({ success: false, message: 'Invalid request body' });
+    }
 
-    // Wait for all promises to resolve
-    Promise.all(promises)
-        .then((messages) => {
-            res.json({ success: true, message: 'SOS sent to all contacts' });
-        })
-        .catch((error) => {
-            console.error('Error sending SMS:', error);
-            res.status(500).json({ success: false, message: 'Failed to send SOS' });
-        });
+    try {
+        const results = await Promise.allSettled(
+            to.map((phoneNumber) =>
+                client.messages.create({
+                    body: `${message}\nLocation: ${location || 'N/A'}`,
+                    from: process.env.TWILIO_PHONE,
+                    to: phoneNumber
+                })
+            )
+        );
+
+        const successes = results
+            .map((result, index) => ({
+                number: to[index],
+                status: result.status,
+                sid: result.status === "fulfilled" ? result.value.sid : null,
+                error: result.status === "rejected" ? result.reason.message : null
+            }));
+
+        const hasFailures = successes.some(result => result.status === "rejected");
+
+        if (hasFailures) {
+            console.log("Partial failure in SOS:", successes);
+            return res.status(500).json({
+                success: false,
+                message: "SOS sent to some contacts, but failed for others",
+                report: successes
+            });
+        }
+
+        console.log("All SOS messages sent successfully");
+        res.json({ success: true, message: "SOS sent to all contacts", report: successes });
+
+    } catch (err) {
+        console.error("Unexpected error:", err.message);
+        res.status(500).json({ success: false, message: "Unexpected server error" });
+    }
 });
 
 app.listen(port, () => {
