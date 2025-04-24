@@ -17,27 +17,25 @@ const client = twilio(accountSid, authToken);
 
 app.post("/send-sos", async (req, res) => {
     const { to, message } = req.body;
+    const fromNumber = process.env.TWILIO_PHONE;
   
-    if (!Array.isArray(to)) {
-      return res.status(400).json({ success: false, error: "'to' must be an array" });
+    if (!fromNumber) {
+      return res.status(500).json({ success: false, error: "Missing FROM number in server config" });
     }
   
     try {
-      const sendPromises = to.map(phone =>
-        client.messages.create({
-          body: message,
-          from: fromNumber,
-          to: phone,
-        })
-      );
+      const result = await client.messages.create({
+        body: message,
+        from: fromNumber,
+        to
+      });
   
-      const results = await Promise.all(sendPromises);
-      res.status(200).json({ success: true, message: "Messages sent", sids: results.map(r => r.sid) });
+      res.status(200).json({ success: true, sid: result.sid });
     } catch (err) {
+      console.error("Twilio error:", err.message);
       res.status(500).json({ success: false, error: err.message });
     }
   });
   
-
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
